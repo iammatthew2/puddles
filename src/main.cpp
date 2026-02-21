@@ -22,7 +22,7 @@ uint32_t lastMqttAttemptMs = 0;
 
 int mapTrackingXToServo(int x) {
   int constrainedX = constrain(x, CAMERA_X_MIN, CAMERA_X_MAX);
-  return map(constrainedX, CAMERA_X_MIN, CAMERA_X_MAX, 0, 180);
+  return map(constrainedX, CAMERA_X_MIN, CAMERA_X_MAX, 180, 0);
 }
 
 void onMqttMessage(char* topic, uint8_t* payload, unsigned int length) {
