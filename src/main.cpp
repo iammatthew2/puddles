@@ -4,12 +4,15 @@
 #include <Servo.h>
 #include <WiFiNINA.h>
 
+#include "RobotSoundEngine.h"
 #include "secrets.h"
 
 Servo servoX;  // D20 - X-axis (tower sg-5010)
 Servo servoY;  // D21 - Y-axis (tower gr92r)
 constexpr uint8_t SERVO_X_PIN = 20;
 constexpr uint8_t SERVO_Y_PIN = 21;
+constexpr uint8_t PIEZO_BUZZER_PIN = 12;
+RobotSoundEngine soundEngine(VOICE_NEUTRAL, PIEZO_BUZZER_PIN);
 WiFiClient wifiClient;
 PubSubClient mqttClient(wifiClient);
 
@@ -172,6 +175,13 @@ void setup() {
   Serial.begin(115200);
   delay(1500);
 
+  esp_err_t soundInitResult = soundEngine.init();
+  if (soundInitResult == ESP_OK) {
+    Serial.println("RobotSoundEngine initialized on D12");
+  } else {
+    Serial.println("RobotSoundEngine init failed");
+  }
+
   servoX.attach(SERVO_X_PIN);
   servoX.write(lastServoXAngle);
   Serial.println("Servo X attached on D20, set to 90 degrees");
@@ -184,6 +194,8 @@ void setup() {
   mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
   mqttClient.setCallback(onMqttMessage);
   connectToMqtt();
+
+  soundEngine.playEmotion(EMOTION_HAPPY, 0.5f);
 }
 
 void loop() {
