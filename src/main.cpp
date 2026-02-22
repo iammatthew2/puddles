@@ -28,11 +28,18 @@ constexpr int SERVO_X_MAX_ANGLE = 140;
 constexpr int SERVO_Y_MIN_ANGLE = 50;
 constexpr int SERVO_Y_MAX_ANGLE = 130;
 constexpr int SERVO_JITTER_DEADBAND_DEGREES = 2;
+constexpr uint32_t FACE_STATE_SOUND_DELAY_MS = 10000;
 
 uint32_t lastWiFiAttemptMs = 0;
 uint32_t lastMqttAttemptMs = 0;
 int lastServoXAngle = 90;
 int lastServoYAngle = 90;
+uint32_t lastFaceActiveMs = 0;
+bool faceActive = false;
+bool hasSeenFace = false;
+bool sadQueuedForCurrentAbsence = false;
+bool happySoundPending = false;
+bool sadSoundPending = false;
 
 int mapTrackingXToServo(int x) {
   int constrainedX = constrain(x, CAMERA_X_MIN, CAMERA_X_MAX);
@@ -71,6 +78,24 @@ void onMqttMessage(char* topic, uint8_t* payload, unsigned int length) {
   Serial.print(dist);
   Serial.print(" active=");
   Serial.println(active ? "true" : "false");
+
+  uint32_t now = millis();
+
+  if (active) {
+    bool wasAbsentLongEnough = (!faceActive) && ((now - lastFaceActiveMs) >=
+                                                 FACE_STATE_SOUND_DELAY_MS);
+
+    if (wasAbsentLongEnough) {
+      happySoundPending = true;
+    }
+
+    faceActive = true;
+    hasSeenFace = true;
+    sadQueuedForCurrentAbsence = false;
+    lastFaceActiveMs = now;
+  } else {
+    faceActive = false;
+  }
 
   if (!active) {
     return;
@@ -194,8 +219,6 @@ void setup() {
   mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
   mqttClient.setCallback(onMqttMessage);
   connectToMqtt();
-
-  soundEngine.playEmotion(EMOTION_HAPPY, 0.5f);
 }
 
 void loop() {
@@ -203,4 +226,20 @@ void loop() {
   connectToMqtt();
 
   mqttClient.loop();
+
+  if (!faceActive && hasSeenFace && !sadQueuedForCurrentAbsence &&
+      ((millis() - lastFaceActiveMs) >= FACE_STATE_SOUND_DELAY_MS)) {
+    sadSoundPending = true;
+    sadQueuedForCurrentAbsence = true;
+  }
+
+  if (happySoundPending) {
+    happySoundPending = false;
+    soundEngine.playEmotion(EMOTION_HAPPY, 0.5f);
+  }
+
+  if (sadSoundPending) {
+    sadSoundPending = false;
+    soundEngine.playEmotion(EMOTION_SAD, 0.5f);
+  }
 }
