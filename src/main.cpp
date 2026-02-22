@@ -24,9 +24,12 @@ constexpr int SERVO_X_MIN_ANGLE = 40;
 constexpr int SERVO_X_MAX_ANGLE = 140;
 constexpr int SERVO_Y_MIN_ANGLE = 50;
 constexpr int SERVO_Y_MAX_ANGLE = 130;
+constexpr int SERVO_JITTER_DEADBAND_DEGREES = 2;
 
 uint32_t lastWiFiAttemptMs = 0;
 uint32_t lastMqttAttemptMs = 0;
+int lastServoXAngle = 90;
+int lastServoYAngle = 90;
 
 int mapTrackingXToServo(int x) {
   int constrainedX = constrain(x, CAMERA_X_MIN, CAMERA_X_MAX);
@@ -73,8 +76,15 @@ void onMqttMessage(char* topic, uint8_t* payload, unsigned int length) {
   int servoXAngle = mapTrackingXToServo(x);
   int servoYAngle = mapTrackingYToServo(y);
 
-  servoX.write(servoXAngle);
-  servoY.write(servoYAngle);
+  if (abs(servoXAngle - lastServoXAngle) > SERVO_JITTER_DEADBAND_DEGREES) {
+    servoX.write(servoXAngle);
+    lastServoXAngle = servoXAngle;
+  }
+
+  if (abs(servoYAngle - lastServoYAngle) > SERVO_JITTER_DEADBAND_DEGREES) {
+    servoY.write(servoYAngle);
+    lastServoYAngle = servoYAngle;
+  }
 
   Serial.print("Servo X angle: ");
   Serial.print(servoXAngle);
@@ -163,11 +173,11 @@ void setup() {
   delay(1500);
 
   servoX.attach(SERVO_X_PIN);
-  servoX.write(90);
+  servoX.write(lastServoXAngle);
   Serial.println("Servo X attached on D20, set to 90 degrees");
 
   servoY.attach(SERVO_Y_PIN);
-  servoY.write(90);
+  servoY.write(lastServoYAngle);
   Serial.println("Servo Y attached on D21, set to 90 degrees");
   connectToWiFi();
 
