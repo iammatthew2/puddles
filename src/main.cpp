@@ -22,6 +22,8 @@ constexpr int CAMERA_Y_MIN = 0;
 constexpr int CAMERA_Y_MAX = 480;
 constexpr int SERVO_X_MIN_ANGLE = 40;
 constexpr int SERVO_X_MAX_ANGLE = 140;
+constexpr int SERVO_Y_MIN_ANGLE = 50;
+constexpr int SERVO_Y_MAX_ANGLE = 130;
 
 uint32_t lastWiFiAttemptMs = 0;
 uint32_t lastMqttAttemptMs = 0;
@@ -34,7 +36,8 @@ int mapTrackingXToServo(int x) {
 
 int mapTrackingYToServo(int y) {
   int constrainedY = constrain(y, CAMERA_Y_MIN, CAMERA_Y_MAX);
-  return map(constrainedY, CAMERA_Y_MIN, CAMERA_Y_MAX, 0, 180);
+  return map(constrainedY, CAMERA_Y_MIN, CAMERA_Y_MAX, SERVO_Y_MIN_ANGLE,
+             SERVO_Y_MAX_ANGLE);
 }
 
 void onMqttMessage(char* topic, uint8_t* payload, unsigned int length) {
