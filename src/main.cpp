@@ -6,8 +6,10 @@
 
 #include "secrets.h"
 
-Servo rudderServo;
-constexpr uint8_t SERVO_PIN = 21;  // D21 on Nano 33 IoT
+Servo servoX;  // D20 - X-axis (tower sg-5010)
+Servo servoY;  // D21 - Y-axis (tower gr92r)
+constexpr uint8_t SERVO_X_PIN = 20;
+constexpr uint8_t SERVO_Y_PIN = 21;
 WiFiClient wifiClient;
 PubSubClient mqttClient(wifiClient);
 
@@ -16,6 +18,8 @@ constexpr uint32_t WIFI_RETRY_INTERVAL_MS = 10000;
 constexpr uint32_t MQTT_RETRY_INTERVAL_MS = 5000;
 constexpr int CAMERA_X_MIN = 0;
 constexpr int CAMERA_X_MAX = 640;
+constexpr int CAMERA_Y_MIN = 0;
+constexpr int CAMERA_Y_MAX = 480;
 
 uint32_t lastWiFiAttemptMs = 0;
 uint32_t lastMqttAttemptMs = 0;
@@ -23,6 +27,11 @@ uint32_t lastMqttAttemptMs = 0;
 int mapTrackingXToServo(int x) {
   int constrainedX = constrain(x, CAMERA_X_MIN, CAMERA_X_MAX);
   return map(constrainedX, CAMERA_X_MIN, CAMERA_X_MAX, 180, 0);
+}
+
+int mapTrackingYToServo(int y) {
+  int constrainedY = constrain(y, CAMERA_Y_MIN, CAMERA_Y_MAX);
+  return map(constrainedY, CAMERA_Y_MIN, CAMERA_Y_MAX, 0, 180);
 }
 
 void onMqttMessage(char* topic, uint8_t* payload, unsigned int length) {
@@ -55,11 +64,16 @@ void onMqttMessage(char* topic, uint8_t* payload, unsigned int length) {
     return;
   }
 
-  int servoAngle = mapTrackingXToServo(x);
-  rudderServo.write(servoAngle);
+  int servoXAngle = mapTrackingXToServo(x);
+  int servoYAngle = mapTrackingYToServo(y);
 
-  Serial.print("Servo angle set to ");
-  Serial.println(servoAngle);
+  servoX.write(servoXAngle);
+  servoY.write(servoYAngle);
+
+  Serial.print("Servo X angle: ");
+  Serial.print(servoXAngle);
+  Serial.print(" | Servo Y angle: ");
+  Serial.println(servoYAngle);
 }
 
 void connectToWiFi() {
@@ -142,10 +156,13 @@ void setup() {
   Serial.begin(115200);
   delay(1500);
 
-  rudderServo.attach(SERVO_PIN);
-  rudderServo.write(90);
+  servoX.attach(SERVO_X_PIN);
+  servoX.write(90);
+  Serial.println("Servo X attached on D20, set to 90 degrees");
 
-  Serial.println("Servo attached on D21, set to 90 degrees");
+  servoY.attach(SERVO_Y_PIN);
+  servoY.write(90);
+  Serial.println("Servo Y attached on D21, set to 90 degrees");
   connectToWiFi();
 
   mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
