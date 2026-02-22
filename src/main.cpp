@@ -4,6 +4,7 @@
 #include <Servo.h>
 #include <WiFiNINA.h>
 
+#include "CuteBuzzerSounds.h"
 #include "RobotSoundEngine.h"
 #include "secrets.h"
 
@@ -200,12 +201,16 @@ void setup() {
   Serial.begin(115200);
   delay(1500);
 
-  esp_err_t soundInitResult = soundEngine.init();
-  if (soundInitResult == ESP_OK) {
-    Serial.println("RobotSoundEngine initialized on D12");
-  } else {
-    Serial.println("RobotSoundEngine init failed");
-  }
+  cute.init(PIEZO_BUZZER_PIN);
+  Serial.println("CuteBuzzerSounds initialized on D12");
+
+  // RobotSoundEngine kept around but not used for now
+  // esp_err_t soundInitResult = soundEngine.init();
+  // if (soundInitResult == ESP_OK) {
+  //   Serial.println("RobotSoundEngine initialized on D12");
+  // } else {
+  //   Serial.println("RobotSoundEngine init failed");
+  // }
 
   servoX.attach(SERVO_X_PIN);
   servoX.write(lastServoXAngle);
@@ -235,11 +240,12 @@ void loop() {
 
   if (happySoundPending) {
     happySoundPending = false;
-    soundEngine.playEmotion(EMOTION_HAPPY, 0.5f);
+    cute.playRandom(SG_JOYFUL);
+    cute.playRandom(SG_JOYFUL);
   }
 
   if (sadSoundPending) {
     sadSoundPending = false;
-    soundEngine.playEmotion(EMOTION_SAD, 0.5f);
+    cute.playRandom(SG_UNHAPPY);
   }
 }
