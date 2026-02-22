@@ -20,13 +20,16 @@ constexpr int CAMERA_X_MIN = 0;
 constexpr int CAMERA_X_MAX = 640;
 constexpr int CAMERA_Y_MIN = 0;
 constexpr int CAMERA_Y_MAX = 480;
+constexpr int SERVO_X_MIN_ANGLE = 40;
+constexpr int SERVO_X_MAX_ANGLE = 140;
 
 uint32_t lastWiFiAttemptMs = 0;
 uint32_t lastMqttAttemptMs = 0;
 
 int mapTrackingXToServo(int x) {
   int constrainedX = constrain(x, CAMERA_X_MIN, CAMERA_X_MAX);
-  return map(constrainedX, CAMERA_X_MIN, CAMERA_X_MAX, 180, 0);
+  return map(constrainedX, CAMERA_X_MIN, CAMERA_X_MAX, SERVO_X_MIN_ANGLE,
+             SERVO_X_MAX_ANGLE);
 }
 
 int mapTrackingYToServo(int y) {
