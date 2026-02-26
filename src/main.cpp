@@ -4,6 +4,8 @@
 #include <Servo.h>
 #include <WiFiNINA.h>
 
+#include <cstring>
+
 #include "CuteBuzzerSounds.h"
 #include "RobotSoundEngine.h"
 #include "secrets.h"
@@ -31,7 +33,9 @@ constexpr int SERVO_Y_MAX_ANGLE = 145;
 constexpr int SERVO_X_JITTER_DEADBAND_DEGREES = 2;
 constexpr int SERVO_Y_JITTER_DEADBAND_DEGREES = 1;
 constexpr int SERVO_Y_MAX_STEP_DEGREES = 6;
+constexpr int CONTROL_SERVO_STEP_DEGREES = 8;
 constexpr uint32_t FACE_STATE_SOUND_DELAY_MS = 10000;
+constexpr uint32_t CONTROL_MODE_TIMEOUT_MS = 10000;
 
 uint32_t lastWiFiAttemptMs = 0;
 uint32_t lastMqttAttemptMs = 0;
@@ -43,6 +47,94 @@ bool hasSeenFace = false;
 bool sadQueuedForCurrentAbsence = false;
 bool happySoundPending = false;
 bool sadSoundPending = false;
+bool controlModeActive = false;
+uint32_t lastControlEventMs = 0;
+
+bool isControlTopic(const char* topic) {
+  return strcmp(topic, MQTT_CONTROL_TOPIC) == 0;
+}
+
+bool isTrackingTopic(const char* topic) {
+  return strcmp(topic, MQTT_TRACKING_TOPIC) == 0;
+}
+
+bool payloadEquals(uint8_t* payload, unsigned int length,
+                   const char* expected) {
+  size_t expectedLength = strlen(expected);
+  return (length == expectedLength) &&
+         (memcmp(payload, expected, expectedLength) == 0);
+}
+
+bool isRecognizedControlEvent(uint8_t* payload, unsigned int length) {
+  return payloadEquals(payload, length, "enc1-puddles-right") ||
+         payloadEquals(payload, length, "enc1-puddles-left") ||
+         payloadEquals(payload, length, "enc2-puddles-right") ||
+         payloadEquals(payload, length, "enc2-puddles-left");
+}
+
+int applyDeltaAndConstrain(int currentAngle, int deltaDegrees, int minAngle,
+                           int maxAngle) {
+  return constrain(currentAngle + deltaDegrees, minAngle, maxAngle);
+}
+
+void handleControlEvent(uint8_t* payload, unsigned int length) {
+  if (!isRecognizedControlEvent(payload, length)) {
+    Serial.println("Ignoring unrecognized control event");
+    return;
+  }
+
+  if (!controlModeActive) {
+    controlModeActive = true;
+    Serial.println("Entered control-mode state");
+  }
+
+  lastControlEventMs = millis();
+
+  Serial.print("Control event: ");
+  for (unsigned int index = 0; index < length; ++index) {
+    Serial.print(static_cast<char>(payload[index]));
+  }
+  Serial.println();
+
+  if (payloadEquals(payload, length, "enc1-puddles-right")) {
+    lastServoXAngle =
+        applyDeltaAndConstrain(lastServoXAngle, CONTROL_SERVO_STEP_DEGREES,
+                               SERVO_X_MIN_ANGLE, SERVO_X_MAX_ANGLE);
+    servoX.write(lastServoXAngle);
+    Serial.print("Control move -> Servo X: ");
+    Serial.println(lastServoXAngle);
+    return;
+  }
+
+  if (payloadEquals(payload, length, "enc1-puddles-left")) {
+    lastServoXAngle =
+        applyDeltaAndConstrain(lastServoXAngle, -CONTROL_SERVO_STEP_DEGREES,
+                               SERVO_X_MIN_ANGLE, SERVO_X_MAX_ANGLE);
+    servoX.write(lastServoXAngle);
+    Serial.print("Control move -> Servo X: ");
+    Serial.println(lastServoXAngle);
+    return;
+  }
+
+  if (payloadEquals(payload, length, "enc2-puddles-right")) {
+    lastServoYAngle =
+        applyDeltaAndConstrain(lastServoYAngle, CONTROL_SERVO_STEP_DEGREES,
+                               SERVO_Y_MIN_ANGLE, SERVO_Y_MAX_ANGLE);
+    servoY.write(lastServoYAngle);
+    Serial.print("Control move -> Servo Y: ");
+    Serial.println(lastServoYAngle);
+    return;
+  }
+
+  if (payloadEquals(payload, length, "enc2-puddles-left")) {
+    lastServoYAngle =
+        applyDeltaAndConstrain(lastServoYAngle, -CONTROL_SERVO_STEP_DEGREES,
+                               SERVO_Y_MIN_ANGLE, SERVO_Y_MAX_ANGLE);
+    servoY.write(lastServoYAngle);
+    Serial.print("Control move -> Servo Y: ");
+    Serial.println(lastServoYAngle);
+  }
+}
 
 int mapTrackingXToServo(int x) {
   int constrainedX = constrain(x, CAMERA_X_MIN, CAMERA_X_MAX);
@@ -67,6 +159,21 @@ int applyMaxStep(int currentAngle, int targetAngle, int maxStepDegrees) {
 }
 
 void onMqttMessage(char* topic, uint8_t* payload, unsigned int length) {
+  if (isControlTopic(topic)) {
+    handleControlEvent(payload, length);
+    return;
+  }
+
+  if (controlModeActive) {
+    Serial.println("Ignoring non-control MQTT message while in control mode");
+    return;
+  }
+
+  if (!isTrackingTopic(topic)) {
+    Serial.println("Ignoring MQTT message on unknown topic");
+    return;
+  }
+
   JsonDocument doc;
   DeserializationError error = deserializeJson(doc, payload, length);
 
@@ -225,6 +332,14 @@ void connectToMqtt() {
       Serial.println(MQTT_TRACKING_TOPIC);
     }
 
+    if (mqttClient.subscribe(MQTT_CONTROL_TOPIC)) {
+      Serial.print("Subscribed to ");
+      Serial.println(MQTT_CONTROL_TOPIC);
+    } else {
+      Serial.print("Failed to subscribe to ");
+      Serial.println(MQTT_CONTROL_TOPIC);
+    }
+
     return;
   }
 
@@ -266,6 +381,12 @@ void loop() {
   connectToMqtt();
 
   mqttClient.loop();
+
+  if (controlModeActive &&
+      ((millis() - lastControlEventMs) >= CONTROL_MODE_TIMEOUT_MS)) {
+    controlModeActive = false;
+    Serial.println("Exited control-mode state (timeout)");
+  }
 
   if (!faceActive && hasSeenFace && !sadQueuedForCurrentAbsence &&
       ((millis() - lastFaceActiveMs) >= FACE_STATE_SOUND_DELAY_MS)) {
