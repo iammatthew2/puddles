@@ -34,6 +34,8 @@ constexpr int SERVO_X_JITTER_DEADBAND_DEGREES = 2;
 constexpr int SERVO_Y_JITTER_DEADBAND_DEGREES = 1;
 constexpr int SERVO_Y_MAX_STEP_DEGREES = 6;
 constexpr int CONTROL_SERVO_STEP_DEGREES = 8;
+constexpr int TEST_SWEEP_STEP_DEGREES = 5;
+constexpr uint32_t TEST_SWEEP_STEP_DELAY_MS = 20;
 constexpr uint32_t FACE_STATE_SOUND_DELAY_MS = 10000;
 constexpr uint32_t CONTROL_MODE_TIMEOUT_MS = 10000;
 
@@ -77,7 +79,122 @@ int applyDeltaAndConstrain(int currentAngle, int deltaDegrees, int minAngle,
   return constrain(currentAngle + deltaDegrees, minAngle, maxAngle);
 }
 
+void sweepServoAcrossRange(Servo& servo, int& lastAngle, int minAngle,
+                           int maxAngle) {
+  for (int angle = minAngle; angle <= maxAngle;
+       angle += TEST_SWEEP_STEP_DEGREES) {
+    servo.write(angle);
+    lastAngle = angle;
+    delay(TEST_SWEEP_STEP_DELAY_MS);
+  }
+
+  for (int angle = maxAngle; angle >= minAngle;
+       angle -= TEST_SWEEP_STEP_DEGREES) {
+    servo.write(angle);
+    lastAngle = angle;
+    delay(TEST_SWEEP_STEP_DELAY_MS);
+  }
+}
+
+void sweepServosSynchronizedAcrossRange(int minAngleX, int maxAngleX,
+                                        int minAngleY, int maxAngleY) {
+  int spanX = maxAngleX - minAngleX;
+  int spanY = maxAngleY - minAngleY;
+  int sharedSpan = max(spanX, spanY);
+
+  for (int progress = 0; progress <= sharedSpan;
+       progress += TEST_SWEEP_STEP_DEGREES) {
+    int angleX = minAngleX + ((progress * spanX) / sharedSpan);
+    int angleY = minAngleY + ((progress * spanY) / sharedSpan);
+    servoX.write(angleX);
+    servoY.write(angleY);
+    lastServoXAngle = angleX;
+    lastServoYAngle = angleY;
+    delay(TEST_SWEEP_STEP_DELAY_MS);
+  }
+
+  for (int progress = sharedSpan; progress >= 0;
+       progress -= TEST_SWEEP_STEP_DEGREES) {
+    int angleX = minAngleX + ((progress * spanX) / sharedSpan);
+    int angleY = minAngleY + ((progress * spanY) / sharedSpan);
+    servoX.write(angleX);
+    servoY.write(angleY);
+    lastServoXAngle = angleX;
+    lastServoYAngle = angleY;
+    delay(TEST_SWEEP_STEP_DELAY_MS);
+  }
+}
+
+void playBeepCount(int count) {
+  for (int index = 0; index < count; ++index) {
+    cute.play(S_BUTTON_PUSHED);
+    delay(60);
+  }
+}
+
+void playEndSounds() {
+  cute.playRandom(SG_JOYFUL);
+  cute.playRandom(SG_JOYFUL);
+}
+
+void runServoTestSequence() {
+  Serial.println("Starting servo test sequence (X, Y, synchronized)");
+  playBeepCount(2);
+
+  Serial.println("Test stage 1: independent X sweep");
+  sweepServoAcrossRange(servoX, lastServoXAngle, SERVO_X_MIN_ANGLE,
+                        SERVO_X_MAX_ANGLE);
+  playBeepCount(1);
+
+  Serial.println("Test stage 2: independent Y sweep");
+  sweepServoAcrossRange(servoY, lastServoYAngle, SERVO_Y_MIN_ANGLE,
+                        SERVO_Y_MAX_ANGLE);
+  playBeepCount(1);
+
+  Serial.println("Test stage 3: synchronized X/Y sweep");
+  sweepServosSynchronizedAcrossRange(SERVO_X_MIN_ANGLE, SERVO_X_MAX_ANGLE,
+                                     SERVO_Y_MIN_ANGLE, SERVO_Y_MAX_ANGLE);
+
+  lastServoXAngle = 90;
+  lastServoYAngle = 90;
+  servoX.write(lastServoXAngle);
+  servoY.write(lastServoYAngle);
+
+  playEndSounds();
+
+  Serial.println("Servo test sequence complete (returned to 90)");
+}
+
 void handleControlEvent(uint8_t* payload, unsigned int length) {
+  JsonDocument controlDoc;
+  DeserializationError controlParseError =
+      deserializeJson(controlDoc, payload, length);
+
+  if (!controlParseError) {
+    bool pressed = controlDoc["pressed"] | false;
+    int key = controlDoc["key"] | -1;
+
+    if (pressed && key == 15) {
+      controlModeActive = false;
+      Serial.println("Exited control-mode state (key 15 override)");
+      return;
+    }
+
+    if (pressed && key == 14) {
+      if (!controlModeActive) {
+        controlModeActive = true;
+        Serial.println("Entered control-mode state");
+      }
+
+      lastControlEventMs = millis();
+      Serial.println("Control command: key 14 test sequence");
+      runServoTestSequence();
+      controlModeActive = false;
+      Serial.println("Exited control-mode state (test complete)");
+      return;
+    }
+  }
+
   if (!isRecognizedControlEvent(payload, length)) {
     Serial.println("Ignoring unrecognized control event");
     return;
