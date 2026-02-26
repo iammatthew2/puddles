@@ -26,9 +26,11 @@ constexpr int CAMERA_Y_MIN = 0;
 constexpr int CAMERA_Y_MAX = 480;
 constexpr int SERVO_X_MIN_ANGLE = 40;
 constexpr int SERVO_X_MAX_ANGLE = 140;
-constexpr int SERVO_Y_MIN_ANGLE = 50;
-constexpr int SERVO_Y_MAX_ANGLE = 130;
-constexpr int SERVO_JITTER_DEADBAND_DEGREES = 2;
+constexpr int SERVO_Y_MIN_ANGLE = 35;
+constexpr int SERVO_Y_MAX_ANGLE = 145;
+constexpr int SERVO_X_JITTER_DEADBAND_DEGREES = 2;
+constexpr int SERVO_Y_JITTER_DEADBAND_DEGREES = 1;
+constexpr int SERVO_Y_MAX_STEP_DEGREES = 6;
 constexpr uint32_t FACE_STATE_SOUND_DELAY_MS = 10000;
 
 uint32_t lastWiFiAttemptMs = 0;
@@ -54,6 +56,16 @@ int mapTrackingYToServo(int y) {
              SERVO_Y_MAX_ANGLE);
 }
 
+int applyMaxStep(int currentAngle, int targetAngle, int maxStepDegrees) {
+  int delta = targetAngle - currentAngle;
+
+  if (abs(delta) <= maxStepDegrees) {
+    return targetAngle;
+  }
+
+  return currentAngle + ((delta > 0) ? maxStepDegrees : -maxStepDegrees);
+}
+
 void onMqttMessage(char* topic, uint8_t* payload, unsigned int length) {
   JsonDocument doc;
   DeserializationError error = deserializeJson(doc, payload, length);
@@ -66,8 +78,9 @@ void onMqttMessage(char* topic, uint8_t* payload, unsigned int length) {
 
   bool active = doc["active"] | false;
   int x = doc["x"] | (CAMERA_X_MAX / 2);
-  int y = doc["y"] | -1;
+  int y = doc["y"] | (CAMERA_Y_MAX / 2);
   int dist = doc["dist"] | -1;
+  bool hasNumericY = doc["y"].is<int>();
 
   Serial.print("Tracking topic: ");
   Serial.println(topic);
@@ -99,26 +112,48 @@ void onMqttMessage(char* topic, uint8_t* payload, unsigned int length) {
   }
 
   if (!active) {
+    Serial.println("No servo update: tracking inactive");
     return;
   }
 
   int servoXAngle = mapTrackingXToServo(x);
-  int servoYAngle = mapTrackingYToServo(y);
+  int servoYAngle = lastServoYAngle;
+  bool wroteServoX = false;
+  bool wroteServoY = false;
 
-  if (abs(servoXAngle - lastServoXAngle) > SERVO_JITTER_DEADBAND_DEGREES) {
+  if (hasNumericY) {
+    if (y < CAMERA_Y_MIN || y > CAMERA_Y_MAX) {
+      Serial.print("Received out-of-range y=");
+      Serial.print(y);
+      Serial.println(", constraining to camera range");
+    }
+
+    int targetServoYAngle = mapTrackingYToServo(y);
+    servoYAngle = applyMaxStep(lastServoYAngle, targetServoYAngle,
+                               SERVO_Y_MAX_STEP_DEGREES);
+  } else {
+    Serial.println("Skipping servoY update: non-numeric or missing y");
+  }
+
+  if (abs(servoXAngle - lastServoXAngle) >= SERVO_X_JITTER_DEADBAND_DEGREES) {
     servoX.write(servoXAngle);
     lastServoXAngle = servoXAngle;
+    wroteServoX = true;
   }
 
-  if (abs(servoYAngle - lastServoYAngle) > SERVO_JITTER_DEADBAND_DEGREES) {
+  if (abs(servoYAngle - lastServoYAngle) >= SERVO_Y_JITTER_DEADBAND_DEGREES) {
     servoY.write(servoYAngle);
     lastServoYAngle = servoYAngle;
+    wroteServoY = true;
   }
 
-  Serial.print("Servo X angle: ");
+  Serial.print("Servo X cmd: ");
   Serial.print(servoXAngle);
-  Serial.print(" | Servo Y angle: ");
+  Serial.print(wroteServoX ? " (write)" : " (hold)");
+  Serial.print(" | Servo Y cmd: ");
   Serial.println(servoYAngle);
+  Serial.println(wroteServoY ? "Servo Y action: write"
+                             : "Servo Y action: hold");
 }
 
 void connectToWiFi() {
