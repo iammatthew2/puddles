@@ -1,6 +1,8 @@
 # Puddles
 
-An Arduino Nano IoT 33 project that drives a two-axis eyeball mechanism using servos, controlled over MQTT.
+An Arduino Nano IoT 33 project that drives a two-axis eyeball, controlled over MQTT.
+
+<img width="1344" height="947" alt="Puddles" src="https://github.com/user-attachments/assets/ed299148-05db-4952-953b-b41ca3ba7db7" />
 
 ## Hardware
 
